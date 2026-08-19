@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+ordenes_trabajo.json
+ordenes_trabajo*.xlsx
+*.png
+diagnostico_get_grid.json
