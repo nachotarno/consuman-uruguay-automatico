@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: "0,30 * * * *"
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
@@ -13,6 +17,12 @@ jobs:
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
+
+      - name: Autenticar con Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/417885139765/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: consuman-github@proevo-ia.iam.gserviceaccount.com
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -34,7 +44,5 @@ jobs:
           python export_work_orders.py
 
       - name: Actualizar Google Sheets
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           python sync_google_sheets.py
