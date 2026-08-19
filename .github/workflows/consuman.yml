@@ -1,0 +1,40 @@
+name: Consuman Uruguay a Google Sheets
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0,30 * * * *"
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Descargar órdenes desde Consuman
+        env:
+          CONSUMAN_USUARIO: ${{ secrets.CONSUMAN_USUARIO }}
+          CONSUMAN_PASSWORD: ${{ secrets.CONSUMAN_PASSWORD }}
+          CONSUMAN_HEADLESS: "1"
+        run: |
+          python export_work_orders.py
+
+      - name: Actualizar Google Sheets
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python sync_google_sheets.py
