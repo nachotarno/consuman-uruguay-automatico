@@ -453,12 +453,16 @@ def run() -> None:
             count = count_records(data)
             suffix = f" ({count} registros detectados)" if count is not None else ""
             print(f"OK: JSON guardado en {OUTPUT_PATH}{suffix}.")
-            if os.getenv("CONSUMAN_SKIP_EXCEL", "0").strip().lower() not in {"1", "true", "si", "yes"}:
+
+            skip_excel = os.getenv("CONSUMAN_SKIP_EXCEL", "0").strip().lower() in {
+                "1", "true", "si", "sí", "yes"
+            }
+            if skip_excel:
+                print("CONSUMAN_SKIP_EXCEL=1: se omite la generación del Excel.")
+            else:
                 print("Generando Excel...")
                 generate_excel()
                 print(f"OK: Excel actualizado en {EXCEL_PATH}.")
-            else:
-                print("Excel omitido (CONSUMAN_SKIP_EXCEL=1).")
         except PlaywrightTimeoutError as exc:
             raise ConsumanError(
                 f"Consuman no respondio dentro de {TIMEOUT_MS // 1000} segundos. "
