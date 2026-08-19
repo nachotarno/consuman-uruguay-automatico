@@ -2,9 +2,13 @@ name: Consuman Uruguay a Google Sheets
 
 on:
   workflow_dispatch:
-
   schedule:
+    # Cada 30 minutos. GitHub cron usa UTC.
     - cron: "0,30 * * * *"
+
+concurrency:
+  group: consuman-uruguay-sync
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -13,6 +17,7 @@ permissions:
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Descargar repositorio
@@ -23,11 +28,13 @@ jobs:
         with:
           workload_identity_provider: projects/417885139765/locations/global/workloadIdentityPools/github-actions/providers/github
           service_account: consuman-github@proevo-ia.iam.gserviceaccount.com
+          create_credentials_file: true
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Instalar dependencias
         run: |
@@ -40,9 +47,13 @@ jobs:
           CONSUMAN_USUARIO: ${{ secrets.CONSUMAN_USUARIO }}
           CONSUMAN_PASSWORD: ${{ secrets.CONSUMAN_PASSWORD }}
           CONSUMAN_HEADLESS: "1"
+          CONSUMAN_SKIP_EXCEL: "1"
         run: |
           python export_work_orders.py
 
       - name: Actualizar Google Sheets
+        env:
+          GOOGLE_SHEET_ID: "1fwuWOnZeiOaY0g8RV0VZVAgJqwAsLjVujnZ4z0gySiA"
+          GOOGLE_SHEET_TAB: "Ordenes de trabajo"
         run: |
           python sync_google_sheets.py
