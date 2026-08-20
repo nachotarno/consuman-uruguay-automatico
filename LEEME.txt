@@ -1,0 +1,29 @@
+SEGUNDO CONSUMAN / SEGUNDO SHEET (PROEVO)
+
+Subir estos archivos al MISMO repositorio GitHub:
+- export_work_orders_proevo.py -> raíz
+- sync_google_sheets_proevo.py -> raíz
+- .github/workflows/consuman-proevo.yml -> respetar esa ruta
+
+No reemplaza los archivos de Uruguay.
+
+Crear en GitHub > Settings > Secrets and variables > Actions:
+- CONSUMAN_USUARIO_PROEVO
+- CONSUMAN_PASSWORD_PROEVO
+
+No subir usuario ni contraseña al repositorio.
+
+Google Sheet configurado:
+- ID: 1FuowVEsGZDKUjHedfOgPuMSSSFEmfr1itIgW-TMuQEM
+- Pestaña: Órdenes de trabajo
+
+Compartir ese Google Sheet como Editor con:
+consuman-github@proevo-ia.iam.gserviceaccount.com
+
+Horarios del workflow (Argentina):
+- 08:00
+- 13:30
+- 19:00
+
+Luego ejecutar manualmente:
+GitHub > Actions > Consuman PROEVO a Google Sheets > Run workflow
