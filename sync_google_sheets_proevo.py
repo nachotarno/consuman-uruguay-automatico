@@ -154,19 +154,19 @@ def credentials() -> Credentials:
     return creds
 
 
-def get_sheet_metadata(service) -> tuple[int, dict[str, Any] | None]:
+def get_sheet_id(service) -> int:
     meta = (
         service.spreadsheets()
         .get(
             spreadsheetId=SPREADSHEET_ID,
-            fields="sheets(properties(sheetId,title,gridProperties(frozenRowCount)),basicFilter)",
+            fields="sheets(properties(sheetId,title,gridProperties(frozenRowCount)))",
         )
         .execute()
     )
     for sheet in meta.get("sheets", []):
         props = sheet.get("properties", {})
         if props.get("title") == SHEET_NAME:
-            return int(props["sheetId"]), sheet.get("basicFilter")
+            return int(props["sheetId"])
     raise RuntimeError(
         f"No existe la pestaña {SHEET_NAME!r} en el spreadsheet indicado."
     )
@@ -177,7 +177,7 @@ def sync() -> None:
     creds = credentials()
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
-    sheet_id, current_filter = get_sheet_metadata(service)
+    sheet_id = get_sheet_id(service)
 
     existing_header = (
         service.spreadsheets()
@@ -219,21 +219,6 @@ def sync() -> None:
             }
         }
     ]
-
-    if current_filter:
-        updated_filter = dict(current_filter)
-        current_range = dict(updated_filter.get("range") or {})
-        current_range.update(
-            {
-                "sheetId": sheet_id,
-                "startRowIndex": 0,
-                "endRowIndex": len(values),
-                "startColumnIndex": 0,
-                "endColumnIndex": 11,
-            }
-        )
-        updated_filter["range"] = current_range
-        requests.append({"setBasicFilter": {"filter": updated_filter}})
 
     service.spreadsheets().batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
