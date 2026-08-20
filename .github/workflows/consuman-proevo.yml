@@ -63,6 +63,18 @@ jobs:
           grep -n "setBasicFilter" sync_google_sheets_proevo.py || echo "OK - setBasicFilter NO existe"
           echo "Buscando frozenRowCount:"
           grep -n "frozenRowCount" sync_google_sheets_proevo.py || true
+
+      - name: Verificar versión del script PROEVO
+        run: |
+          echo "Commit ejecutado: $GITHUB_SHA"
+          echo "Carpeta:"
+          pwd
+          echo "Archivo:"
+          ls -l sync_google_sheets_proevo.py
+          echo "Buscando setBasicFilter:"
+          grep -n "setBasicFilter" sync_google_sheets_proevo.py || echo "OK - setBasicFilter NO existe"
+          echo "Buscando frozenRowCount:"
+          grep -n "frozenRowCount" sync_google_sheets_proevo.py || true
      
       - name: Actualizar Google Sheets PROEVO
         env:
