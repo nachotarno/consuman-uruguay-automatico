@@ -164,10 +164,25 @@ def sync() -> None:
 
     if existing_header:
         read_header = existing_header[0]
-        if read_header not in (OLD_HEADERS, HEADERS):
+
+        legacy_columna1 = OLD_HEADERS.copy()
+        legacy_columna1[0] = "Columna 1"
+
+        legacy_columna1_fecha_cierre = HEADERS.copy()
+        legacy_columna1_fecha_cierre[0] = "Columna 1"
+
+        valid_headers = (
+            OLD_HEADERS,
+            HEADERS,
+            legacy_columna1,
+            legacy_columna1_fecha_cierre,
+        )
+
+        if read_header not in valid_headers:
             raise RuntimeError(
-                f"Encabezados inesperados. Se esperaba {HEADERS!r} (o la versión anterior {OLD_HEADERS!r}) "
-                f"y se leyó {read_header!r}. No se modifica la hoja."
+                f"Encabezados inesperados. Se esperaba {HEADERS!r} "
+                f"(o una versión anterior compatible) y se leyó {read_header!r}. "
+                "No se modifica la hoja."
             )
 
     # Solo valores: no toca tablas, filtros, estilos ni formato.
