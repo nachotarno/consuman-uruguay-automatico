@@ -17,7 +17,10 @@ SPREADSHEET_ID = os.getenv(
 ).strip()
 SHEET_NAME = os.getenv("GOOGLE_SHEET_TAB", "Ordenes de trabajo").strip()
 INPUT_PATH = Path(__file__).resolve().parent / "ordenes_trabajo.json"
-HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado"]
+
+OLD_HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado"]
+HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado", "Fecha cierre"]
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 STATUS_NAMES = {
@@ -25,6 +28,7 @@ STATUS_NAMES = {
     1: "Finalizada",
     2: "En progreso",
     3: "Sin iniciar",
+    4: "En progreso",
     5: "Cancelada",
 }
 
@@ -55,12 +59,16 @@ def task_name(order: dict[str, Any]) -> str:
             if value and value not in unique:
                 unique.append(value)
         return " | ".join(unique)
-
     return str(order.get("task") or "").strip()
 
 
 def planned_date(order: dict[str, Any]) -> str:
     return str(order.get("date") or "")
+
+
+def close_date(order: dict[str, Any]) -> str:
+    # Consuman devuelve la fecha de cierre en endDate.
+    return str(order.get("endDate") or "")
 
 
 def load_rows() -> list[list[str]]:
@@ -82,11 +90,9 @@ def load_rows() -> list[list[str]]:
         raise RuntimeError("El JSON de Consuman no contiene una lista de órdenes.")
 
     rows: list[list[str]] = []
-
     for order in orders:
         if not isinstance(order, dict):
             continue
-
         rows.append(
             [
                 "" if order.get("number") is None else str(order.get("number")),
@@ -94,6 +100,7 @@ def load_rows() -> list[list[str]]:
                 task_name(order),
                 planned_date(order),
                 status_name(order),
+                close_date(order),
             ]
         )
 
@@ -101,19 +108,13 @@ def load_rows() -> list[list[str]]:
         raise RuntimeError(
             "La extracción no devolvió órdenes. Para proteger la hoja válida, no se borra ni reemplaza nada."
         )
-
     return rows
 
 
 def credentials() -> Credentials:
-    # google-github-actions/auth crea un archivo temporal y define
-    # GOOGLE_APPLICATION_CREDENTIALS. google.auth.default() lo usa
-    # automáticamente, sin claves JSON permanentes.
     creds, _ = google.auth.default(scopes=SCOPES)
-
     if not creds.valid:
         creds.refresh(Request())
-
     return creds
 
 
@@ -126,12 +127,10 @@ def get_sheet_metadata(service) -> tuple[int, dict[str, Any] | None]:
         )
         .execute()
     )
-
     for sheet in meta.get("sheets", []):
         props = sheet.get("properties", {})
         if props.get("title") == SHEET_NAME:
             return int(props["sheetId"]), sheet.get("basicFilter")
-
     raise RuntimeError(
         f"No existe la pestaña {SHEET_NAME!r} en el spreadsheet indicado."
     )
@@ -144,28 +143,28 @@ def sync() -> None:
 
     sheet_id, current_filter = get_sheet_metadata(service)
 
-    # Primero verificamos que la hoja tenga los encabezados esperados o esté vacía.
     existing_header = (
         service.spreadsheets()
         .values()
         .get(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"'{SHEET_NAME}'!A1:E1",
+            range=f"'{SHEET_NAME}'!A1:F1",
         )
         .execute()
         .get("values", [])
     )
 
-    if existing_header and existing_header[0] != HEADERS:
-        raise RuntimeError(
-            f"Encabezados inesperados. Se esperaba {HEADERS!r} y se leyó {existing_header[0]!r}. "
-            "No se modifica la hoja."
-        )
+    if existing_header:
+        read_header = existing_header[0]
+        if read_header not in (OLD_HEADERS, HEADERS):
+            raise RuntimeError(
+                f"Encabezados inesperados. Se esperaba {HEADERS!r} (o la versión anterior {OLD_HEADERS!r}) "
+                f"y se leyó {read_header!r}. No se modifica la hoja."
+            )
 
-    # Limpia solamente valores viejos. No toca formato, anchos, colores ni congelado.
     service.spreadsheets().values().clear(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"'{SHEET_NAME}'!A2:E",
+        range=f"'{SHEET_NAME}'!A2:F",
         body={},
     ).execute()
 
@@ -173,7 +172,7 @@ def sync() -> None:
 
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"'{SHEET_NAME}'!A1:E{len(values)}",
+        range=f"'{SHEET_NAME}'!A1:F{len(values)}",
         valueInputOption="USER_ENTERED",
         body={"values": values},
     ).execute()
@@ -190,8 +189,6 @@ def sync() -> None:
         }
     ]
 
-    # Si ya existe un filtro, conserva sus criterios pero ajusta el rango
-    # al total actual de filas para que no queden filas viejas o nuevas fuera.
     if current_filter:
         updated_filter = dict(current_filter)
         current_range = dict(updated_filter.get("range") or {})
@@ -201,7 +198,7 @@ def sync() -> None:
                 "startRowIndex": 0,
                 "endRowIndex": len(values),
                 "startColumnIndex": 0,
-                "endColumnIndex": 5,
+                "endColumnIndex": 6,
             }
         )
         updated_filter["range"] = current_range
@@ -218,22 +215,16 @@ def sync() -> None:
         .values()
         .get(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"'{SHEET_NAME}'!A1:E{check_end}",
+            range=f"'{SHEET_NAME}'!A1:F{check_end}",
         )
         .execute()
         .get("values", [])
     )
 
     if not sample or sample[0] != HEADERS:
-        raise RuntimeError(
-            f"Falló la verificación de encabezados. Leído: {sample[:1]!r}"
-        )
+        raise RuntimeError(f"Falló la verificación de encabezados. Leído: {sample[:1]!r}")
 
-    expected_rows = len(rows)
-    observed_rows = max(0, len(sample) - 1)
-
-    print(f"OK: {expected_rows} filas sincronizadas en {SHEET_NAME!r}.")
-    print(f"Verificación de muestra: {observed_rows} filas de datos leídas.")
+    print(f"OK: {len(rows)} filas sincronizadas en {SHEET_NAME!r}, incluyendo Fecha cierre.")
     print("Muestra verificada:")
     for row in sample[:6]:
         print(row)
