@@ -108,7 +108,7 @@ def build_payload() -> dict[str, Any]:
         "periodRange": True,
         # Incluye todos los estados de OT para no omitir ordenes recientes,
         # canceladas o en transiciones que la vista predeterminada no marca.
-        "woState": [{"id": value} for value in (1, 2, 3, 4, 5)],
+        "woState": [{"id": value} for value in (0, 1, 2, 3, 4, 5)],
         "woStatesTask": [{"id": value} for value in (0, 2, 3)],
         "period": [{"id": 6}],
         "layout": [],
