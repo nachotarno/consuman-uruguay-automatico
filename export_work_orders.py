@@ -31,6 +31,8 @@ OUTPUT_PATH = Path(__file__).resolve().parent / "ordenes_trabajo.json"
 EXCEL_PATH = Path(__file__).resolve().parent / "ordenes_trabajo_Uruguay.xlsx"
 BUILDER_PATH = Path(__file__).resolve().parent / "build_excel.mjs"
 TIMEOUT_MS = 60_000
+LOGIN_TIMEOUT_MS = 90_000
+LOGIN_ATTEMPTS = 3
 
 
 class ConsumanError(RuntimeError):
@@ -108,7 +110,7 @@ def build_payload() -> dict[str, Any]:
         "periodRange": True,
         # Incluye todos los estados de OT para no omitir ordenes recientes,
         # canceladas o en transiciones que la vista predeterminada no marca.
-        "woState": [{"id": value} for value in (0, 1, 2, 3, 4, 5)],
+        "woState": [{"id": value} for value in (1, 2, 3, 4, 5)],
         "woStatesTask": [{"id": value} for value in (0, 2, 3)],
         "period": [{"id": 6}],
         "layout": [],
@@ -132,21 +134,59 @@ def is_login_page(page) -> bool:
 
 
 def login(page, username: str, password: str) -> None:
-    print(f"Abriendo login: {LOGIN_URL}")
-    page.goto(LOGIN_URL, wait_until="domcontentloaded")
-    user_input = page.locator('input[name="username"]')
-    password_input = page.locator('input[name="password"]')
-    login_button = page.locator("button", has_text="Login")
-    user_input.wait_for(state="visible")
-    password_input.wait_for(state="visible")
-    login_button.wait_for(state="visible")
-    user_input.fill(username)
-    password_input.fill(password)
-    login_button.click()
-    user_input.wait_for(state="hidden", timeout=TIMEOUT_MS)
-    page.wait_for_load_state("domcontentloaded")
-    if is_login_page(page):
-        raise ConsumanError("El login no fue aceptado. Verifique las credenciales.")
+    last_detail = "Consuman no completo el inicio de sesion."
+    for attempt in range(1, LOGIN_ATTEMPTS + 1):
+        print(f"Abriendo login: {LOGIN_URL} (intento {attempt}/{LOGIN_ATTEMPTS})")
+        try:
+            page.goto(
+                LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=LOGIN_TIMEOUT_MS,
+            )
+            user_input = page.locator('input[name="username"]')
+            password_input = page.locator('input[name="password"]')
+            login_button = page.locator("button", has_text="Login")
+            user_input.wait_for(state="visible", timeout=LOGIN_TIMEOUT_MS)
+            password_input.wait_for(state="visible", timeout=LOGIN_TIMEOUT_MS)
+            login_button.wait_for(state="visible", timeout=LOGIN_TIMEOUT_MS)
+            user_input.fill(username)
+            password_input.fill(password)
+            login_button.click()
+            user_input.wait_for(state="hidden", timeout=LOGIN_TIMEOUT_MS)
+            page.wait_for_load_state("domcontentloaded", timeout=LOGIN_TIMEOUT_MS)
+            if not is_login_page(page):
+                return
+
+            messages = page.locator(
+                ".alert-danger:visible, .validation-summary-errors:visible, "
+                ".swal2-html-container:visible"
+            ).all_inner_texts()
+            if messages:
+                raise ConsumanError(
+                    "Consuman rechazo el acceso: " + " ".join(messages).strip()
+                )
+            last_detail = "Consuman permanecio en la pantalla de ingreso."
+        except ConsumanError:
+            raise
+        except (PlaywrightTimeoutError, PlaywrightError) as exc:
+            last_detail = f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
+
+        if attempt < LOGIN_ATTEMPTS:
+            delay_ms = attempt * 5_000
+            print(
+                f"ADVERTENCIA: fallo transitorio de acceso. "
+                f"Reintentando en {delay_ms // 1000} segundos..."
+            )
+            try:
+                page.goto("about:blank", wait_until="domcontentloaded", timeout=10_000)
+            except PlaywrightError:
+                pass
+            page.wait_for_timeout(delay_ms)
+
+    raise ConsumanError(
+        f"No se pudo iniciar sesion en Consuman despues de {LOGIN_ATTEMPTS} "
+        f"intentos. Ultimo detalle: {last_detail}"
+    )
 
 
 def extract_orders(page, payload: dict[str, Any]) -> Any:
@@ -453,16 +493,9 @@ def run() -> None:
             count = count_records(data)
             suffix = f" ({count} registros detectados)" if count is not None else ""
             print(f"OK: JSON guardado en {OUTPUT_PATH}{suffix}.")
-
-            skip_excel = os.getenv("CONSUMAN_SKIP_EXCEL", "0").strip().lower() in {
-                "1", "true", "si", "sí", "yes"
-            }
-            if skip_excel:
-                print("CONSUMAN_SKIP_EXCEL=1: se omite la generación del Excel.")
-            else:
-                print("Generando Excel...")
-                generate_excel()
-                print(f"OK: Excel actualizado en {EXCEL_PATH}.")
+            print("Generando Excel...")
+            generate_excel()
+            print(f"OK: Excel actualizado en {EXCEL_PATH}.")
         except PlaywrightTimeoutError as exc:
             raise ConsumanError(
                 f"Consuman no respondio dentro de {TIMEOUT_MS // 1000} segundos. "
