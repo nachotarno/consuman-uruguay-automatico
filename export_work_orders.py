@@ -379,6 +379,7 @@ def add_task_names(orders_data: Any, tasks_data: Any) -> Any:
         raise ConsumanError("Consuman devolvio un formato inesperado al combinar tareas.")
 
     tasks_by_order: dict[str, list[str]] = {}
+    task_states_by_order: dict[str, list[int]] = {}
     for task in tasks:
         if not isinstance(task, dict):
             continue
@@ -389,6 +390,16 @@ def add_task_names(orders_data: Any, tasks_data: Any) -> Any:
         names = tasks_by_order.setdefault(key, [])
         if name not in names:
             names.append(name)
+        raw_state = task.get("state")
+        if raw_state is not None:
+            try:
+                state = int(raw_state)
+            except (TypeError, ValueError):
+                state = -1
+            if state >= 0:
+                states = task_states_by_order.setdefault(key, [])
+                if state not in states:
+                    states.append(state)
 
     for order in orders:
         if not isinstance(order, dict):
@@ -397,6 +408,8 @@ def add_task_names(orders_data: Any, tasks_data: Any) -> Any:
         names = tasks_by_order.get(key, [])
         order["task"] = " | ".join(names)
         order["tasks"] = names
+        order["taskStates"] = task_states_by_order.get(key, [])
+        order["sheetStatus"] = status_name(order)
     return orders_data
 
 
@@ -419,9 +432,22 @@ def save_json_atomic(data: Any) -> None:
 
 
 def status_name(order: dict[str, Any]) -> str:
+    task_states = order.get("taskStates")
+    if isinstance(task_states, list) and task_states:
+        states = {int(value) for value in task_states}
+        if states == {1}:
+            return "Finalizada"
+        if states == {2}:
+            return "Cancelada"
+        if states == {0}:
+            return "Sin iniciar"
+        return "En progreso"
+
     status = order.get("status")
-    if status == 0 and float(order.get("percentage") or 0) >= 100 and order.get("endDate"):
+    if float(order.get("percentage") or 0) >= 100:
         return "Finalizada"
+    if status == 3:
+        return "Sin iniciar"
     return {
         0: "Sin iniciar",
         1: "Finalizada",
@@ -477,7 +503,7 @@ def generate_excel(data: Any) -> None:
                     str(order.get("equipment") or ""),
                     task_name(order),
                     excel_date(order.get("date")),
-                    status_name(order),
+                    str(order.get("sheetStatus") or status_name(order)),
                 ]
             )
 
