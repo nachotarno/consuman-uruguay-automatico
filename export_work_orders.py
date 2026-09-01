@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from openpyxl import Workbook
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from playwright.sync_api import (
     Error as PlaywrightError,
@@ -29,7 +32,6 @@ API_URL = "https://panoi.consumannet.com.ar/api/workOrder/get-grid"
 TASK_API_URL = "https://panoi.consumannet.com.ar/api/workOrderTask/get-grid"
 OUTPUT_PATH = Path(__file__).resolve().parent / "ordenes_trabajo.json"
 EXCEL_PATH = Path(__file__).resolve().parent / "ordenes_trabajo_Uruguay.xlsx"
-BUILDER_PATH = Path(__file__).resolve().parent / "build_excel.mjs"
 TIMEOUT_MS = 60_000
 LOGIN_TIMEOUT_MS = 90_000
 LOGIN_ATTEMPTS = 3
@@ -416,60 +418,140 @@ def save_json_atomic(data: Any) -> None:
     os.replace(temp_path, OUTPUT_PATH)
 
 
-def find_node() -> str:
-    configured = os.getenv("CONSUMAN_NODE", "").strip()
-    candidates = [
-        configured,
-        shutil.which("node") or "",
-        str(
-            Path.home()
-            / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"
-        ),
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return candidate
-    raise ConsumanError(
-        "No se encontro Node.js para generar el Excel. Defina CONSUMAN_NODE "
-        "con la ruta completa a node.exe. El JSON fue guardado correctamente."
-    )
+def status_name(order: dict[str, Any]) -> str:
+    status = order.get("status")
+    if status == 0 and float(order.get("percentage") or 0) >= 100 and order.get("endDate"):
+        return "Finalizada"
+    return {
+        0: "Sin iniciar",
+        1: "Finalizada",
+        2: "En progreso",
+        3: "Sin iniciar",
+        5: "Cancelada",
+    }.get(status, str(status or ""))
 
 
-def generate_excel() -> None:
-    node = find_node()
+def task_name(order: dict[str, Any]) -> str:
+    tasks = order.get("tasks")
+    if isinstance(tasks, list):
+        names = [str(value).strip() for value in tasks if str(value).strip()]
+        if names:
+            return " | ".join(dict.fromkeys(names))
+    return str(order.get("task") or "").strip()
+
+
+def excel_date(value: Any) -> datetime | str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        return text
+
+
+def generate_excel(data: Any) -> None:
+    orders = data.get("data", []) if isinstance(data, dict) else data
+    if not isinstance(orders, list):
+        raise ConsumanError("No se encontro una lista de ordenes para generar el Excel.")
+
     temp_excel = EXCEL_PATH.with_name("ordenes_trabajo_Uruguay.nuevo.xlsx")
-    preview = EXCEL_PATH.with_name("ordenes_trabajo_Uruguay_preview.png")
     try:
-        completed = subprocess.run(
-            [
-                node,
-                str(BUILDER_PATH),
-                str(OUTPUT_PATH),
-                str(temp_excel),
-                str(preview),
-            ],
-            cwd=OUTPUT_PATH.parent,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            check=False,
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Ordenes de trabajo"
+        sheet.sheet_view.showGridLines = False
+        sheet.freeze_panes = "A2"
+
+        headers = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado"]
+        sheet.append(headers)
+        for order in orders:
+            if not isinstance(order, dict):
+                continue
+            sheet.append(
+                [
+                    str(order.get("number") or ""),
+                    str(order.get("equipment") or ""),
+                    task_name(order),
+                    excel_date(order.get("date")),
+                    status_name(order),
+                ]
+            )
+
+        header_fill = PatternFill("solid", fgColor="1F4E78")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_border = Border(
+            bottom=Side(style="thin", color="17365D")
         )
-    except subprocess.TimeoutExpired as exc:
-        raise ConsumanError("La generacion del Excel excedio 120 segundos.") from exc
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout)[-1000:].strip()
-        raise ConsumanError(f"No se pudo generar el Excel: {detail}")
-    if not temp_excel.is_file():
-        raise ConsumanError("El generador finalizo sin crear el archivo Excel.")
-    try:
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.border = header_border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        sheet.row_dimensions[1].height = 28
+
+        for row in sheet.iter_rows(min_row=2, max_col=5):
+            row[0].number_format = "@"
+            row[0].alignment = Alignment(horizontal="center", vertical="center")
+            row[1].alignment = Alignment(horizontal="center", vertical="center")
+            row[2].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            row[3].number_format = "dd/mm/yyyy hh:mm"
+            row[3].alignment = Alignment(horizontal="center", vertical="center")
+            row[4].alignment = Alignment(horizontal="center", vertical="center")
+
+        widths = {"A": 12, "B": 24, "C": 58, "D": 22, "E": 18}
+        for column, width in widths.items():
+            sheet.column_dimensions[column].width = width
+
+        last_row = max(sheet.max_row, 2)
+        table = Table(displayName="OrdenesTrabajoTable", ref=f"A1:E{last_row}")
+        table.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        sheet.add_table(table)
+
+        status_range = f"E2:E{last_row}"
+        sheet.conditional_formatting.add(
+            status_range,
+            FormulaRule(
+                formula=['E2="Finalizada"'],
+                fill=PatternFill("solid", fgColor="E2F0D9"),
+                font=Font(color="375623"),
+            ),
+        )
+        sheet.conditional_formatting.add(
+            status_range,
+            FormulaRule(
+                formula=['E2="En progreso"'],
+                fill=PatternFill("solid", fgColor="FFF2CC"),
+                font=Font(color="7F6000"),
+            ),
+        )
+        sheet.conditional_formatting.add(
+            status_range,
+            FormulaRule(
+                formula=['E2="Cancelada"'],
+                fill=PatternFill("solid", fgColor="FCE4D6"),
+                font=Font(color="C00000"),
+            ),
+        )
+
+        workbook.save(temp_excel)
         os.replace(temp_excel, EXCEL_PATH)
     except PermissionError as exc:
         raise ConsumanError(
             f"No se puede reemplazar {EXCEL_PATH.name} porque esta abierto en Excel. "
             "Cierre el archivo y vuelva a ejecutar. La extraccion JSON se completo."
         ) from exc
+    except OSError as exc:
+        raise ConsumanError(f"No se pudo generar el Excel: {exc}") from exc
 
 
 def run() -> None:
@@ -494,7 +576,7 @@ def run() -> None:
             suffix = f" ({count} registros detectados)" if count is not None else ""
             print(f"OK: JSON guardado en {OUTPUT_PATH}{suffix}.")
             print("Generando Excel...")
-            generate_excel()
+            generate_excel(data)
             print(f"OK: Excel actualizado en {EXCEL_PATH}.")
         except PlaywrightTimeoutError as exc:
             raise ConsumanError(
