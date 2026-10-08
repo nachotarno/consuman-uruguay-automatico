@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from order_status import status_name
+
 import google.auth
 from google.auth.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -22,33 +24,6 @@ OLD_HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado"]
 HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado", "Fecha cierre"]
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
-STATUS_NAMES = {
-    0: "Sin iniciar",
-    1: "Finalizada",
-    2: "En progreso",
-    3: "Sin iniciar",
-    4: "En progreso",
-    5: "Cancelada",
-}
-
-
-def status_name(order: dict[str, Any]) -> str:
-    try:
-        status = int(order.get("status"))
-    except (TypeError, ValueError):
-        return str(order.get("status") or "")
-
-    try:
-        percentage = float(order.get("percentage") or 0)
-    except (TypeError, ValueError):
-        percentage = 0
-
-    if status == 0 and percentage >= 100 and order.get("endDate"):
-        return "Finalizada"
-
-    return STATUS_NAMES.get(status, str(order.get("status") or ""))
-
 
 def task_name(order: dict[str, Any]) -> str:
     tasks = order.get("tasks")
