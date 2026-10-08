@@ -14,6 +14,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from order_status import status_name
+
 from openpyxl import Workbook
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -429,32 +431,6 @@ def save_json_atomic(data: Any) -> None:
         json.dump(data, file, ensure_ascii=False, indent=2)
         file.write("\n")
     os.replace(temp_path, OUTPUT_PATH)
-
-
-def status_name(order: dict[str, Any]) -> str:
-    task_states = order.get("taskStates")
-    if isinstance(task_states, list) and task_states:
-        states = {int(value) for value in task_states}
-        if states == {1}:
-            return "Finalizada"
-        if states == {2}:
-            return "Cancelada"
-        if states == {0}:
-            return "Sin iniciar"
-        return "En progreso"
-
-    status = order.get("status")
-    if float(order.get("percentage") or 0) >= 100:
-        return "Finalizada"
-    if status == 3:
-        return "Sin iniciar"
-    return {
-        0: "Sin iniciar",
-        1: "Finalizada",
-        2: "En progreso",
-        3: "Sin iniciar",
-        5: "Cancelada",
-    }.get(status, str(status or ""))
 
 
 def task_name(order: dict[str, Any]) -> str:
