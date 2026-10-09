@@ -395,10 +395,18 @@ def task_columns(page) -> list[dict[str, Any]]:
         });
         for (const element of document.querySelectorAll('.dx-datagrid')) {
             if (!element.getClientRects().length) continue;
-            let grid = window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dxDataGrid
-                ? window.DevExpress.ui.dxDataGrid.getInstance(element) : null;
-            if (!grid && window.jQuery && window.jQuery.fn.dxDataGrid) grid = window.jQuery(element).dxDataGrid('instance');
-            if (grid) flatten(grid.option('columns'));
+            // En DevExtreme 19 la clase puede estar en el contenido del widget.
+            for (const host of [element, element.parentElement]) {
+                if (!host) continue;
+                let grid = null;
+                try {
+                    if (window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dxDataGrid)
+                        grid = window.DevExpress.ui.dxDataGrid.getInstance(host);
+                    if (!grid && window.jQuery && window.jQuery.fn.dxDataGrid)
+                        grid = window.jQuery(host).dxDataGrid('instance');
+                } catch (_) { continue; }
+                if (grid) { flatten(grid.option('columns')); break; }
+            }
         }
         return found;
     }""")
@@ -651,4 +659,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
