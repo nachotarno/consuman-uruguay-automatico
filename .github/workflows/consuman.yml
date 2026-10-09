@@ -43,6 +43,9 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Verificar transformación de órdenes y fechas de tareas
+        run: python -m unittest discover -v
+
       - name: Descargar órdenes desde Consuman
         env:
           CONSUMAN_USUARIO: ${{ secrets.CONSUMAN_USUARIO }}
@@ -58,3 +61,4 @@ jobs:
           GOOGLE_SHEET_TAB: "Ordenes de trabajo"
         run: |
           python sync_google_sheets.py
+

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from order_status import status_name
+from task_details import build_task_records
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import FormulaRule
@@ -33,6 +35,7 @@ WORK_ORDERS_URL = "https://panoi.consumannet.com.ar/Operational/WorkOrders.aspx"
 API_URL = "https://panoi.consumannet.com.ar/api/workOrder/get-grid"
 TASK_API_URL = "https://panoi.consumannet.com.ar/api/workOrderTask/get-grid"
 OUTPUT_PATH = Path(__file__).resolve().parent / "ordenes_trabajo.json"
+TASK_OUTPUT_PATH = Path(__file__).resolve().parent / "tareas_trabajo.json"
 EXCEL_PATH = Path(__file__).resolve().parent / "ordenes_trabajo_Uruguay.xlsx"
 TIMEOUT_MS = 60_000
 LOGIN_TIMEOUT_MS = 90_000
@@ -374,6 +377,64 @@ def extract_tasks(page, payload: dict[str, Any]) -> Any:
     return result["data"]
 
 
+def task_columns(page) -> list[dict[str, Any]]:
+    """Lee el campo real que usa Fecha realización en la grilla Detalles."""
+    page.get_by_text(re.compile(r"^\s*detalles\s*$", re.IGNORECASE)).click()
+    page.wait_for_function("""() => {
+        const clean = x => String(x || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+        return [...document.querySelectorAll('.dx-header-row td')]
+          .some(cell => clean(cell.textContent).includes('fecha realizacion'));
+    }""", timeout=TIMEOUT_MS)
+    columns = page.evaluate("""() => {
+        const found = [];
+        const flatten = cols => (cols || []).forEach(col => {
+            if (col && typeof col === 'object') {
+                if (col.caption && col.dataField) found.push({caption: col.caption, dataField: col.dataField});
+                flatten(col.columns);
+            }
+        });
+        const readReactColumns = node => {
+            if (Array.isArray(node)) { node.forEach(readReactColumns); return; }
+            if (!node || typeof node !== 'object') return;
+            const props = node.props || node;
+            if (props.caption && props.dataField)
+                found.push({caption: props.caption, dataField: props.dataField});
+            if (Array.isArray(props.columns)) flatten(props.columns);
+            if (props.children) readReactColumns(props.children);
+        };
+        for (const element of document.querySelectorAll('.dx-datagrid, .dx-treelist, .dx-widget')) {
+            if (!element.getClientRects().length) continue;
+            // Consuman monta Detalles como componente React; su DevExtreme
+            // pertenece al bundle y no al dxDataGrid global de la página.
+            const fiberKey = Object.keys(element).find(k => k.startsWith('__reactFiber$'));
+            let fiber = fiberKey ? element[fiberKey] : null;
+            for (let depth = 0; fiber && depth < 30; depth++, fiber = fiber.return)
+                readReactColumns(fiber.memoizedProps);
+            // En DevExtreme 19 la clase puede estar en el contenido del widget.
+            for (const host of [element, element.parentElement, element.parentElement && element.parentElement.parentElement]) {
+                if (!host) continue;
+                let grid = null;
+                try {
+                    if (window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dxDataGrid && typeof window.DevExpress.ui.dxDataGrid.getInstance === 'function')
+                        grid = window.DevExpress.ui.dxDataGrid.getInstance(host);
+                    if (!grid && window.jQuery && window.jQuery.fn.dxDataGrid)
+                        grid = window.jQuery(host).dxDataGrid('instance');
+                } catch (_) { continue; }
+                if (grid) {
+                    // getVisibleColumns contiene los captions ya resueltos por la aplicación.
+                    flatten(grid.getVisibleColumns());
+                    flatten(grid.option('columns'));
+                    break;
+                }
+            }
+        }
+        return found;
+    }""")
+    if not columns:
+        raise ConsumanError("No se pudo leer la configuración de la grilla Detalles.")
+    return columns
+
+
 def add_task_names(orders_data: Any, tasks_data: Any) -> Any:
     orders = orders_data.get("data", []) if isinstance(orders_data, dict) else orders_data
     tasks = tasks_data.get("data", []) if isinstance(tasks_data, dict) else tasks_data
@@ -572,6 +633,12 @@ def run() -> None:
             login(page, username, password)
             data = extract_orders(page, payload)
             tasks = extract_tasks(page, payload)
+            print("Campos disponibles por tarea:", sorted(tasks.get('data', [{}])[0].keys()))
+            detail = build_task_records(data, tasks, task_columns(page))
+            task_temp = TASK_OUTPUT_PATH.with_suffix(".json.tmp")
+            task_temp.write_text(json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(task_temp, TASK_OUTPUT_PATH)
+            print(f"OK: {len(detail['records'])} tareas conservadas; campos de fecha: {detail['dateFields']}.")
             data = add_task_names(data, tasks)
             save_json_atomic(data)
             count = count_records(data)
@@ -596,6 +663,9 @@ def main() -> int:
         return 0
     except ConsumanError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"ERROR en el detalle de tareas: {exc}", file=sys.stderr)
         return 1
     except PlaywrightError as exc:
         print(f"ERROR de Playwright: {exc}", file=sys.stderr)
