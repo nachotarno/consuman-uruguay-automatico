@@ -393,10 +393,10 @@ def task_columns(page) -> list[dict[str, Any]]:
                 flatten(col.columns);
             }
         });
-        for (const element of document.querySelectorAll('.dx-datagrid')) {
+        for (const element of document.querySelectorAll('.dx-datagrid, .dx-treelist, .dx-widget')) {
             if (!element.getClientRects().length) continue;
             // En DevExtreme 19 la clase puede estar en el contenido del widget.
-            for (const host of [element, element.parentElement]) {
+            for (const host of [element, element.parentElement, element.parentElement && element.parentElement.parentElement]) {
                 if (!host) continue;
                 let grid = null;
                 try {
@@ -405,12 +405,18 @@ def task_columns(page) -> list[dict[str, Any]]:
                     if (!grid && window.jQuery && window.jQuery.fn.dxDataGrid)
                         grid = window.jQuery(host).dxDataGrid('instance');
                 } catch (_) { continue; }
-                if (grid) { flatten(grid.option('columns')); break; }
+                if (grid) {
+                    // getVisibleColumns contiene los captions ya resueltos por la aplicación.
+                    flatten(grid.getVisibleColumns());
+                    flatten(grid.option('columns'));
+                    break;
+                }
             }
         }
         return found;
     }""")
     if not columns:
+        print("Diagnóstico de grillas:", page.evaluate("""() => [...document.querySelectorAll('.dx-datagrid, .dx-widget')].filter(e => e.getClientRects().length).slice(0,12).map(e => ({id:e.id,classes:e.className,parent:e.parentElement && e.parentElement.id}))"""))
         raise ConsumanError("No se pudo leer la configuración de la grilla Detalles.")
     return columns
 
