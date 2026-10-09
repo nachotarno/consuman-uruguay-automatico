@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from order_status import status_name
+from task_details import HEADERS as TASK_HEADERS, load_task_rows
 
 import google.auth
 from google.auth.credentials import Credentials
@@ -19,6 +20,8 @@ SPREADSHEET_ID = os.getenv(
 ).strip()
 SHEET_NAME = os.getenv("GOOGLE_SHEET_TAB", "Ordenes de trabajo").strip()
 INPUT_PATH = Path(__file__).resolve().parent / "ordenes_trabajo.json"
+TASK_INPUT_PATH = Path(__file__).resolve().parent / "tareas_trabajo.json"
+TASK_SHEET_NAME = "Tareas de trabajo"
 
 OLD_HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado"]
 HEADERS = ["OT", "Activo", "Tarea", "Fecha planificada", "Estado", "Fecha cierre"]
@@ -95,8 +98,20 @@ def credentials() -> Credentials:
 
 def sync() -> None:
     rows = load_rows()
+    # Validar fechas y detalle antes de tocar la hoja que ya usa la página.
+    task_rows = load_task_rows(TASK_INPUT_PATH)
     creds = credentials()
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+    metadata = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID, fields="sheets.properties").execute()
+    task_sheet = next((s["properties"] for s in metadata.get("sheets", []) if s["properties"]["title"] == TASK_SHEET_NAME), None)
+    if task_sheet:
+        header = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{TASK_SHEET_NAME}'!A1:J1").execute().get("values", [])
+        if header and header[0] != TASK_HEADERS:
+            raise RuntimeError("Encabezados inesperados en Tareas de trabajo. No se modifica el Sheet.")
+    else:
+        reply = service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={"requests": [{"addSheet": {"properties": {"title": TASK_SHEET_NAME, "gridProperties": {"rowCount": max(1000, len(task_rows)+1), "columnCount": 10, "frozenRowCount": 1}}}}]}).execute()
+        task_sheet = reply["replies"][0]["addSheet"]["properties"]
 
     existing_header = (
         service.spreadsheets()
@@ -164,6 +179,25 @@ def sync() -> None:
     if not sample or sample[0] != HEADERS:
         raise RuntimeError(f"Falló la verificación de encabezados. Leído: {sample[:1]!r}")
 
+    sheet_id = task_sheet["sheetId"]
+    requests = []
+    if task_sheet.get("gridProperties", {}).get("rowCount", 0) < len(task_rows)+1:
+        requests.append({"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"rowCount": len(task_rows)+1}}, "fields": "gridProperties.rowCount"}})
+    requests.extend([
+        {"updateCells": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "startColumnIndex": 0, "endColumnIndex": 10}, "rows": [
+            {"values": [{"userEnteredValue": {"numberValue": v} if isinstance(v, (float, int)) else {"stringValue": str(v)}} for v in row]}
+            for row in [TASK_HEADERS]+task_rows
+        ], "fields": "userEnteredValue"}},
+        {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "startColumnIndex": 5, "endColumnIndex": 7}, "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE_TIME", "pattern": "dd/mm/yyyy hh:mm"}}}, "fields": "userEnteredFormat.numberFormat"}},
+        {"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}}, "fields": "gridProperties.frozenRowCount"}},
+    ])
+    # Reemplazo atómico del detalle; updateCells limpia las filas sobrantes de su rango.
+    service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body={"requests": requests}).execute()
+    task_sample = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{TASK_SHEET_NAME}'!A1:J{min(len(task_rows)+1, 6)}").execute().get("values", [])
+    if not task_sample or task_sample[0] != TASK_HEADERS:
+        raise RuntimeError("Falló la verificación del detalle de tareas.")
+    print(f"OK: {len(task_rows)} tareas sincronizadas con planificación y realización en {TASK_SHEET_NAME!r}.")
+
     print(f"OK: {len(rows)} filas sincronizadas en {SHEET_NAME!r}, incluyendo Fecha cierre.")
     print("Muestra verificada:")
     for row in sample[:6]:
@@ -181,3 +215,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
