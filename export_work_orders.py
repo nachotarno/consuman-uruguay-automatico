@@ -393,8 +393,23 @@ def task_columns(page) -> list[dict[str, Any]]:
                 flatten(col.columns);
             }
         });
+        const readReactColumns = node => {
+            if (Array.isArray(node)) { node.forEach(readReactColumns); return; }
+            if (!node || typeof node !== 'object') return;
+            const props = node.props || node;
+            if (props.caption && props.dataField)
+                found.push({caption: props.caption, dataField: props.dataField});
+            if (Array.isArray(props.columns)) flatten(props.columns);
+            if (props.children) readReactColumns(props.children);
+        };
         for (const element of document.querySelectorAll('.dx-datagrid, .dx-treelist, .dx-widget')) {
             if (!element.getClientRects().length) continue;
+            // Consuman monta Detalles como componente React; su DevExtreme
+            // pertenece al bundle y no al dxDataGrid global de la página.
+            const fiberKey = Object.keys(element).find(k => k.startsWith('__reactFiber$'));
+            let fiber = fiberKey ? element[fiberKey] : null;
+            for (let depth = 0; fiber && depth < 30; depth++, fiber = fiber.return)
+                readReactColumns(fiber.memoizedProps);
             // En DevExtreme 19 la clase puede estar en el contenido del widget.
             for (const host of [element, element.parentElement, element.parentElement && element.parentElement.parentElement]) {
                 if (!host) continue;
@@ -416,8 +431,6 @@ def task_columns(page) -> list[dict[str, Any]]:
         return found;
     }""")
     if not columns:
-        print("Diagnóstico de grillas:", page.evaluate("""() => ({instanceAPI: typeof window.DevExpress?.ui?.dxDataGrid?.getInstance, widgets: [...document.querySelectorAll('.dx-datagrid, .dx-widget')].filter(e => e.getClientRects().length).slice(0,3).map(e => ({id:e.id,classes:e.className,parent:e.parentElement && e.parentElement.id,dataKeys:window.jQuery ? Object.keys(window.jQuery(e).data()) : []}))})"""))
-        print("Definición de columnas y scripts:", page.evaluate("""() => ({scripts:[...document.scripts].map(s=>s.src).filter(Boolean), inline:[...document.scripts].filter(s=>!s.src && /plannedDate|realization|realisation|executionDate/i.test(s.textContent)).map(s=>(s.textContent.match(/.{0,60}(?:plannedDate|realizationDate|realisationDate|executionDate|dataField|caption).{0,100}/g) || []).slice(0,50)), widgetProperties:[...document.querySelectorAll('.dx-widget')].filter(e=>e.getClientRects().length).slice(0,2).map(e=>Object.keys(e).map(k=>({key:k,type:typeof e[k],keys:e[k] && typeof e[k]==='object' ? Object.keys(e[k]).slice(0,20) : []})))})"""))
         raise ConsumanError("No se pudo leer la configuración de la grilla Detalles.")
     return columns
 
