@@ -417,6 +417,7 @@ def task_columns(page) -> list[dict[str, Any]]:
     }""")
     if not columns:
         print("Diagnóstico de grillas:", page.evaluate("""() => ({instanceAPI: typeof window.DevExpress?.ui?.dxDataGrid?.getInstance, widgets: [...document.querySelectorAll('.dx-datagrid, .dx-widget')].filter(e => e.getClientRects().length).slice(0,3).map(e => ({id:e.id,classes:e.className,parent:e.parentElement && e.parentElement.id,dataKeys:window.jQuery ? Object.keys(window.jQuery(e).data()) : []}))})"""))
+        print("Definición de columnas y scripts:", page.evaluate("""() => ({scripts:[...document.scripts].map(s=>s.src).filter(Boolean), inline:[...document.scripts].filter(s=>!s.src && /plannedDate|realization|realisation|executionDate/i.test(s.textContent)).map(s=>s.textContent.slice(0,18000)), widgetProperties:[...document.querySelectorAll('.dx-widget')].filter(e=>e.getClientRects().length).slice(0,2).map(e=>Object.keys(e).map(k=>({key:k,type:typeof e[k],keys:e[k] && typeof e[k]==='object' ? Object.keys(e[k]).slice(0,20) : []})))})"""))
         raise ConsumanError("No se pudo leer la configuración de la grilla Detalles.")
     return columns
 
@@ -619,6 +620,7 @@ def run() -> None:
             login(page, username, password)
             data = extract_orders(page, payload)
             tasks = extract_tasks(page, payload)
+            print("Campos disponibles por tarea:", sorted(tasks.get('data', [{}])[0].keys()))
             detail = build_task_records(data, tasks, task_columns(page))
             task_temp = TASK_OUTPUT_PATH.with_suffix(".json.tmp")
             task_temp.write_text(json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8")
