@@ -400,7 +400,7 @@ def task_columns(page) -> list[dict[str, Any]]:
                 if (!host) continue;
                 let grid = null;
                 try {
-                    if (window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dxDataGrid)
+                    if (window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dxDataGrid && typeof window.DevExpress.ui.dxDataGrid.getInstance === 'function')
                         grid = window.DevExpress.ui.dxDataGrid.getInstance(host);
                     if (!grid && window.jQuery && window.jQuery.fn.dxDataGrid)
                         grid = window.jQuery(host).dxDataGrid('instance');
@@ -416,7 +416,7 @@ def task_columns(page) -> list[dict[str, Any]]:
         return found;
     }""")
     if not columns:
-        print("Diagnóstico de grillas:", page.evaluate("""() => [...document.querySelectorAll('.dx-datagrid, .dx-widget')].filter(e => e.getClientRects().length).slice(0,12).map(e => ({id:e.id,classes:e.className,parent:e.parentElement && e.parentElement.id}))"""))
+        print("Diagnóstico de grillas:", page.evaluate("""() => ({instanceAPI: typeof window.DevExpress?.ui?.dxDataGrid?.getInstance, widgets: [...document.querySelectorAll('.dx-datagrid, .dx-widget')].filter(e => e.getClientRects().length).slice(0,3).map(e => ({id:e.id,classes:e.className,parent:e.parentElement && e.parentElement.id,dataKeys:window.jQuery ? Object.keys(window.jQuery(e).data()) : []}))})"""))
         raise ConsumanError("No se pudo leer la configuración de la grilla Detalles.")
     return columns
 
