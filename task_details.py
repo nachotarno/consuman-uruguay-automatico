@@ -75,6 +75,7 @@ def build_task_records(orders_data: Any, tasks_data: Any, columns: list[dict[str
     if not any(isinstance(task, dict) and fields["realized"] in task for task in tasks):
         raise ValueError("El campo de Fecha realización de la grilla no aparece en la API de tareas. No se publica un detalle con fechas falsas.")
     records = []
+    skipped: list[dict[str, str]] = []
     seen: dict[str, dict[str, Any]] = {}
     for task in tasks:
         if not isinstance(task, dict):
@@ -91,16 +92,19 @@ def build_task_records(orders_data: Any, tasks_data: Any, columns: list[dict[str
         ot_field = display_fields.get("ot", "workOrderNumber")
         ot = text(order.get("number")) if order else text(task.get(ot_field))
         if not ot:
-            raise ValueError(f"No se pudo identificar la OT de la tarea {task_id}.")
+            skipped.append({"id": task_id, "motivo": "sin OT"})
+            continue
         planned = task.get(fields["planned"])
         if not planned:
-            raise ValueError(f"La tarea {task_id} no tiene fecha planificada.")
+            skipped.append({"id": task_id, "motivo": "sin fecha planificada"})
+            continue
         # Una realización ausente sigue siendo ausente aunque la OT marque 100 %.
         realized = task.get(fields["realized"])
         asset = text(task.get(display_fields.get("activo", "equipment"))) or (text(order.get("equipment")) if order else "")
         task_name = text(task.get(display_fields.get("tarea", "task")))
         if not asset or not task_name:
-            raise ValueError(f"Falta activo o tarea en registro {task_id}.")
+            skipped.append({"id": task_id, "motivo": "sin activo o tarea"})
+            continue
         part = text(task.get(display_fields.get("parte", "part")))
         reference_field = next((v for k, v in display_fields.items() if k.startswith("numero /") or k.startswith("numero/")), "number")
         records.append({
@@ -110,7 +114,7 @@ def build_task_records(orders_data: Any, tasks_data: Any, columns: list[dict[str
             "reference": text(task.get(reference_field)),
             "orderType": text(order.get("type")) if order else "",
         })
-    return {"dateFields": fields, "records": records}
+    return {"dateFields": fields, "records": records, "skipped": skipped}
 
 
 def sheet_date(value: Any, timezone_name: str = "America/Montevideo") -> float | str:

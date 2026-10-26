@@ -638,6 +638,12 @@ def run() -> None:
             task_temp = TASK_OUTPUT_PATH.with_suffix(".json.tmp")
             task_temp.write_text(json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8")
             os.replace(task_temp, TASK_OUTPUT_PATH)
+            omitidas = detail.get("skipped", [])
+            if omitidas:
+                print(
+                    f"ADVERTENCIA: {len(omitidas)} tareas incompletas omitidas "
+                    f"(ejemplo: {omitidas[0]}). No se abortó la sincronización."
+                )
             print(f"OK: {len(detail['records'])} tareas conservadas; campos de fecha: {detail['dateFields']}.")
             data = add_task_names(data, tasks)
             save_json_atomic(data)

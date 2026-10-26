@@ -58,6 +58,14 @@ class TaskDetailsTests(unittest.TestCase):
         self.assertEqual([r["equipment"] for r in result["records"]], ["CP SIM 3068"]*2)
         self.assertEqual(len({r["workOrderNumber"] for r in result["records"]}), 2)
 
+    def test_incomplete_record_is_skipped_not_fatal(self):
+        good = self.task(1, realized="2026-10-08T13:06:00Z")
+        bad = {"id": 999, "workOrderNumber": "7777", "plannedDate": "2026-10-08T03:00:00Z", "actualExecution": "2026-10-08T13:06:00Z", "task": "", "state": 1}
+        result = build_task_records(ORDERS, [good, bad], COLUMNS)
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertEqual(result["skipped"][0]["id"], "999")
+
     def test_bad_date_and_missing_task_id_fail(self):
         with self.assertRaises(ValueError):
             sheet_date("fecha inválida")
