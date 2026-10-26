@@ -3,9 +3,7 @@ name: Consuman Uruguay a Google Sheets
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 11 * * *"    # 08:00 Argentina
-    - cron: "30 16 * * *"   # 13:30 Argentina
-    - cron: "0 22 * * *"    # 19:00 Argentina
+    - cron: "0 * * * *"     # cada hora, en punto (UTC)
 
 concurrency:
   group: consuman-uruguay-sync

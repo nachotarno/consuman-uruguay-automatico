@@ -3,9 +3,7 @@ name: Consuman PROEVO a Google Sheets
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 11 * * *"    # 08:00 Argentina
-    - cron: "30 16 * * *"   # 13:30 Argentina
-    - cron: "0 22 * * *"    # 19:00 Argentina
+    - cron: "0 * * * *"     # cada hora, en punto (UTC)
 
 concurrency:
   group: consuman-proevo-sync
@@ -52,30 +50,6 @@ jobs:
         run: |
           python export_work_orders_proevo.py
 
-      - name: Verificar versión del script PROEVO
-        run: |
-          echo "Commit ejecutado: $GITHUB_SHA"
-          echo "Carpeta:"
-          pwd
-          echo "Archivo:"
-          ls -l sync_google_sheets_proevo.py
-          echo "Buscando setBasicFilter:"
-          grep -n "setBasicFilter" sync_google_sheets_proevo.py || echo "OK - setBasicFilter NO existe"
-          echo "Buscando frozenRowCount:"
-          grep -n "frozenRowCount" sync_google_sheets_proevo.py || true
-
-      - name: Verificar versión del script PROEVO
-        run: |
-          echo "Commit ejecutado: $GITHUB_SHA"
-          echo "Carpeta:"
-          pwd
-          echo "Archivo:"
-          ls -l sync_google_sheets_proevo.py
-          echo "Buscando setBasicFilter:"
-          grep -n "setBasicFilter" sync_google_sheets_proevo.py || echo "OK - setBasicFilter NO existe"
-          echo "Buscando frozenRowCount:"
-          grep -n "frozenRowCount" sync_google_sheets_proevo.py || true
-     
       - name: Actualizar Google Sheets PROEVO
         env:
           GOOGLE_SHEET_ID: "1FuowVEsGZDKUjHedfOgPuMSSSFEmfr1itIgW-TMuQEM"
